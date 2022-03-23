@@ -13,8 +13,6 @@ import (
 	health "github.com/AppsFlyer/go-sundheit"
 	"github.com/AppsFlyer/go-sundheit/checks"
 	"github.com/pkg/errors"
-
-	visibility "gitlab.appsflyer.com/go/af-visibility"
 )
 
 const (
@@ -64,7 +62,6 @@ func getMetric(metricData string) Metric {
 }
 
 func (s *TestSuite) runTestHealthMetrics(checkName string, passing bool, initiallyPassing bool) {
-	_, _ = visibility.NewVisibility(visibility.WithStdoutExporter())
 	listener := NewMetricsListener()
 	h := health.New(health.WithCheckListeners(listener), health.WithHealthListeners(listener))
 	registerCheck(h, checkName, passing, initiallyPassing)
@@ -92,7 +89,6 @@ func (s *TestSuite) TestHealthMetricsFailing() {
 }
 
 func (s *TestSuite) runTestHealthMetricsWithClassification(option Option, classification string) {
-	_, _ = visibility.NewVisibility(visibility.WithStdoutExporter())
 	listener := NewMetricsListener(option)
 	h := health.New(health.WithCheckListeners(listener), health.WithHealthListeners(listener))
 	checkName := passingCheckName
