@@ -1,7 +1,6 @@
 package sundheitotel
 
 import (
-	"fmt"
 	"time"
 
 	gosundheit "github.com/AppsFlyer/go-sundheit"
@@ -28,8 +27,6 @@ func (c *MetricsListener) OnCheckRegistered(name string, result gosundheit.Resul
 }
 
 func (c *MetricsListener) OnCheckStarted(_ string) {
-	test := ""
-	fmt.Println(test)
 }
 
 func (c *MetricsListener) OnCheckCompleted(name string, result gosundheit.Result) {
