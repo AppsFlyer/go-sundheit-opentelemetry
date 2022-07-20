@@ -1,8 +1,6 @@
 package sundheitotel
 
 import (
-	"time"
-
 	gosundheit "github.com/AppsFlyer/go-sundheit"
 	"go.opentelemetry.io/otel/attribute"
 )
@@ -40,7 +38,7 @@ func (c *MetricsListener) OnResultsUpdated(results map[string]gosundheit.Result)
 }
 
 func (c *MetricsListener) recordCheck(name string, result gosundheit.Result) {
-	duration := int64(result.Duration) / int64(time.Millisecond)
+	duration := result.Duration.Milliseconds()
 	tags := c.defaultTags(name, result.IsHealthy())
 	mDuration.Record(duration, tags...)
 }
