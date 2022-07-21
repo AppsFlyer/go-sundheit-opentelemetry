@@ -16,8 +16,6 @@ var (
 	keyCheck          = "check"
 	keyCheckPassing   = "check_passing"
 	keyClassification = "classification"
-	mStatus           = NewInt64Gauge(meter, StatusMetricName)
-	mDuration         = NewInt64Gauge(meter, DurationMetricName)
 )
 
 type status bool
@@ -27,4 +25,10 @@ func (s status) asInt64() int64 {
 		return 1
 	}
 	return 0
+}
+
+type intStatus int64
+
+func (i intStatus) asBool() bool {
+	return i == 1
 }

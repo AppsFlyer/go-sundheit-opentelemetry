@@ -23,11 +23,12 @@ import (
 type TestSuite struct {
 	suite.Suite
 	output *ThreadSafeBuffer
+	pusher *controller.Controller
 }
 
 func (s *TestSuite) SetupSuite() {
 	s.output = new(ThreadSafeBuffer)
-	installExportPipeline(context.Background(), s.T(), s.output, time.Millisecond*100)
+	s.installExportPipeline(context.Background(), s.T(), s.output, time.Millisecond*120)
 }
 
 func (s *TestSuite) SetupTest() {
@@ -71,14 +72,14 @@ func (b *ThreadSafeBuffer) String() string {
 	return b.buffer.String()
 }
 
-func installExportPipeline(ctx context.Context, t *testing.T, writer io.Writer, collectPeriod time.Duration) func() {
+func (s *TestSuite) installExportPipeline(ctx context.Context, t *testing.T, writer io.Writer, collectPeriod time.Duration) func() {
 	t.Logf("starting exporter pipeline")
 	exporter, err := stdoutmetric.New(stdoutmetric.WithPrettyPrint(), stdoutmetric.WithWriter(writer))
 	if err != nil {
 		t.Fatalf("creating stdoutmetric exporter: %v", err)
 	}
 
-	pusher := controller.New(
+	s.pusher = controller.New(
 		processor.NewFactory(
 			simple.NewWithInexpensiveDistribution(),
 			exporter,
@@ -86,13 +87,13 @@ func installExportPipeline(ctx context.Context, t *testing.T, writer io.Writer, 
 		controller.WithExporter(exporter),
 		controller.WithCollectPeriod(collectPeriod),
 	)
-	if err = pusher.Start(ctx); err != nil {
+	if err = s.pusher.Start(ctx); err != nil {
 		t.Fatalf("starting push controller: %v", err)
 	}
-	global.SetMeterProvider(pusher)
+	global.SetMeterProvider(s.pusher)
 
 	return func() {
-		if err := pusher.Stop(ctx); err != nil {
+		if err := s.pusher.Stop(ctx); err != nil {
 			t.Fatalf("stopping push controller: %v", err)
 		}
 	}

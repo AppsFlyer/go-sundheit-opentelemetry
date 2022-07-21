@@ -62,13 +62,18 @@ func getMetric(metricData string) Metric {
 }
 
 func (s *TestSuite) runTestHealthMetrics(checkName string, passing bool, initiallyPassing bool) {
-	listener := NewMetricsListener()
+	// Prepare
+	listener, err := NewMetricsListener()
+	s.Require().NoError(err)
 	h := health.New(health.WithCheckListeners(listener), health.WithHealthListeners(listener))
+
+	// Act
 	registerCheck(h, checkName, passing, initiallyPassing)
 	defer h.DeregisterAll()
 	s.AwaitOutput(awaitMetric)
-	dataPoints := s.deserializeOutput()
 
+	// Assert
+	dataPoints := s.deserializeOutput()
 	require.Len(s.T(), dataPoints, 3)
 	require.Equal(s.T(), s.getDurationMetric(checkName, initiallyPassing), getMetric(dataPoints[0].Name))
 	require.Equal(s.T(), status(initiallyPassing).asInt64(), dataPoints[0].Last)
@@ -89,7 +94,8 @@ func (s *TestSuite) TestHealthMetricsFailing() {
 }
 
 func (s *TestSuite) runTestHealthMetricsWithClassification(option Option, classification string) {
-	listener := NewMetricsListener(option)
+	listener, err := NewMetricsListener(option)
+	s.Require().NoError(err)
 	h := health.New(health.WithCheckListeners(listener), health.WithHealthListeners(listener))
 	checkName := passingCheckName
 	passing := true
@@ -137,7 +143,7 @@ func registerCheck(h gosundheit.Health, name string, passing bool, initiallyPass
 		CheckName: name,
 		CheckFunc: stub.run,
 	},
-		gosundheit.InitialDelay(3*time.Second),
+		gosundheit.InitialDelay(0),
 		gosundheit.ExecutionPeriod(120*time.Minute),
 		gosundheit.InitiallyPassing(initiallyPassing),
 	)
