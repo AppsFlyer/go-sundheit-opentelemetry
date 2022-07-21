@@ -2,12 +2,13 @@ package sundheitotel
 
 import (
 	"context"
+	"sync/atomic"
+	"unsafe"
+
 	gosundheit "github.com/AppsFlyer/go-sundheit"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric/instrument"
 	"go.opentelemetry.io/otel/metric/instrument/asyncint64"
-	"sync/atomic"
-	"unsafe"
 )
 
 type MetricsListener struct {
