@@ -3,10 +3,12 @@ package sundheitotel
 import (
 	"context"
 	"fmt"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"regexp"
 	"strconv"
 	"strings"
+	"testing"
 	"time"
 
 	gosundheit "github.com/AppsFlyer/go-sundheit"
@@ -15,22 +17,12 @@ import (
 	"github.com/pkg/errors"
 )
 
-const (
-	successMsg = "success"
-	failedMsg  = "failed"
-
-	failingCheckName = "failing.check"
-	passingCheckName = "passing.check"
-	statusCheckName  = "all_checks"
-	sleepTime        = 25
-)
-
 type Metric struct {
 	Name string
 	Tags string
 }
 
-func (s *TestSuite) getMetricName(metric string, checkName string, passing bool, classification ...string) Metric {
+func getMetricName(metric string, checkName string, passing bool, classification ...string) Metric {
 	classificationTag := ""
 	if len(classification) > 0 {
 		classificationTag = fmt.Sprintf(",classification=%s", classification[0])
@@ -42,12 +34,12 @@ func (s *TestSuite) getMetricName(metric string, checkName string, passing bool,
 	}
 }
 
-func (s *TestSuite) getDurationMetric(checkName string, passing bool, classification ...string) Metric {
-	return s.getMetricName(DurationMetricName, checkName, passing, classification...)
+func getDurationMetric(checkName string, passing bool, classification ...string) Metric {
+	return getMetricName(DurationMetricName, checkName, passing, classification...)
 }
 
-func (s *TestSuite) getStatusMetric(checkName string, passing bool, classification ...string) Metric {
-	return s.getMetricName(StatusMetricName, checkName, passing, classification...)
+func getStatusMetric(checkName string, passing bool, classification ...string) Metric {
+	return getMetricName(StatusMetricName, checkName, passing, classification...)
 }
 
 func getMetric(metricData string) Metric {
@@ -61,76 +53,115 @@ func getMetric(metricData string) Metric {
 	}
 }
 
-func (s *TestSuite) runTestHealthMetrics(checkName string, passing bool, initiallyPassing bool) {
+func TestNoCheckNoMetrics(t *testing.T) {
 	// Prepare
-	listener, err := NewMetricsListener()
-	s.Require().NoError(err)
+	output := new(ThreadSafeBuffer)
+	ctx := context.Background()
+	pusher := installExportPipeline(ctx, t, output)
+	listener, err := NewMetricsListener(WithMeter(pusher.Meter(t.Name())))
+	require.NoError(t, err)
+	h := health.New(health.WithCheckListeners(listener), health.WithHealthListeners(listener))
+
+	// Act
+	defer h.DeregisterAll()
+
+	// Assert
+	require.Never(t, func() bool {
+		return awaitMetric(output)
+	}, time.Second*1, time.Millisecond*10, "output needs to be empty")
+	if err := pusher.Stop(ctx); err != nil {
+		t.Fatalf("stopping push controller: %v", err)
+	}
+}
+
+func runTestHealthMetrics(t *testing.T, checkName string, passing bool, initiallyPassing bool) {
+	// Prepare
+	output := new(ThreadSafeBuffer)
+	ctx := context.Background()
+	pusher := installExportPipeline(ctx, t, output)
+	listener, err := NewMetricsListener(WithMeter(pusher.Meter(t.Name())))
+	require.NoError(t, err)
 	h := health.New(health.WithCheckListeners(listener), health.WithHealthListeners(listener))
 
 	// Act
 	registerCheck(h, checkName, passing, initiallyPassing)
 	defer h.DeregisterAll()
-	s.AwaitOutput(awaitMetric)
+	awaitOutput(t, awaitMetric, output)
 
 	// Assert
-	dataPoints := s.deserializeOutput()
-	require.Len(s.T(), dataPoints, 3)
-	require.Equal(s.T(), s.getDurationMetric(checkName, initiallyPassing), getMetric(dataPoints[0].Name))
-	require.Equal(s.T(), status(initiallyPassing).asInt64(), dataPoints[0].Last)
+	dataPoints := deserializeOutput(t, output)
+	fmt.Println(dataPoints)
+	require.GreaterOrEqual(t, len(dataPoints), 3)
 
-	require.Equal(s.T(), s.getStatusMetric(statusCheckName, passing), getMetric(dataPoints[1].Name))
-	require.Equal(s.T(), status(passing).asInt64(), dataPoints[1].Last)
+	assert.Equal(t, getStatusMetric(checkName, passing), getMetric(dataPoints[0].Name))
+	assert.Equal(t, status(passing).asInt64(), dataPoints[0].Last)
 
-	require.Equal(s.T(), s.getDurationMetric(checkName, passing), getMetric(dataPoints[2].Name))
-	require.True(s.T(), sleepTime <= dataPoints[2].Last)
+	assert.Equal(t, getStatusMetric("all_checks", passing), getMetric(dataPoints[1].Name))
+	assert.Equal(t, status(passing).asInt64(), dataPoints[1].Last)
+
+	assert.Equal(t, getDurationMetric(checkName, passing), getMetric(dataPoints[2].Name))
+	assert.True(t, 25 <= dataPoints[2].Last)
+	if err := pusher.Stop(ctx); err != nil {
+		t.Fatalf("stopping push controller: %v", err)
+	}
 }
 
-func (s *TestSuite) TestHealthMetricsPassing() {
-	s.runTestHealthMetrics(passingCheckName, true, false)
+func TestHealthMetricsPassing(t *testing.T) {
+	runTestHealthMetrics(t, "passing.check", true, false)
 }
 
-func (s *TestSuite) TestHealthMetricsFailing() {
-	s.runTestHealthMetrics(failingCheckName, false, false)
+func TestHealthMetricsFailing(t *testing.T) {
+	runTestHealthMetrics(t, "failing.check", false, false)
 }
 
-func (s *TestSuite) runTestHealthMetricsWithClassification(option Option, classification string) {
-	listener, err := NewMetricsListener(option)
-	s.Require().NoError(err)
+func runTestHealthMetricsWithClassification(t *testing.T, option Option, classification string) {
+	// Prepare
+	output := new(ThreadSafeBuffer)
+	ctx := context.Background()
+	pusher := installExportPipeline(ctx, t, output)
+	listener, err := NewMetricsListener(option, WithMeter(pusher.Meter(t.Name())))
+	require.NoError(t, err)
 	h := health.New(health.WithCheckListeners(listener), health.WithHealthListeners(listener))
-	checkName := passingCheckName
+	checkName := "passing.classification.check"
 	passing := true
 	initiallyPassing := false
+
+	// Act
 	registerCheck(h, checkName, passing, initiallyPassing)
 	defer h.DeregisterAll()
+	awaitOutput(t, awaitMetric, output)
 
-	s.AwaitOutput(awaitMetric)
-	dataPoints := s.deserializeOutput()
+	// Assert
+	dataPoints := deserializeOutput(t, output)
+	fmt.Println(dataPoints)
+	require.Len(t, dataPoints, 3)
+	require.Equal(t, getStatusMetric(checkName, passing, classification), getMetric(dataPoints[0].Name))
+	require.Equal(t, status(passing).asInt64(), dataPoints[0].Last)
 
-	require.Len(s.T(), dataPoints, 3)
-	require.Equal(s.T(), s.getDurationMetric(checkName, initiallyPassing, classification), getMetric(dataPoints[0].Name))
-	require.Equal(s.T(), status(initiallyPassing).asInt64(), dataPoints[0].Last)
+	require.Equal(t, getStatusMetric("all_checks", passing, classification), getMetric(dataPoints[1].Name))
+	require.Equal(t, status(passing).asInt64(), dataPoints[1].Last)
 
-	require.Equal(s.T(), s.getStatusMetric(statusCheckName, passing, classification), getMetric(dataPoints[1].Name))
-	require.Equal(s.T(), status(passing).asInt64(), dataPoints[1].Last)
-
-	require.Equal(s.T(), s.getDurationMetric(checkName, passing, classification), getMetric(dataPoints[2].Name))
-	require.True(s.T(), sleepTime <= dataPoints[2].Last)
+	require.Equal(t, getDurationMetric(checkName, passing, classification), getMetric(dataPoints[2].Name))
+	require.True(t, 25 <= dataPoints[2].Last)
+	if err := pusher.Stop(ctx); err != nil {
+		t.Fatalf("stopping push controller: %v", err)
+	}
 }
 
-func (s *TestSuite) TestHealthMetricsWithLivenessClassification() {
-	s.runTestHealthMetricsWithClassification(WithLivenessClassification(), "liveness")
+func TestHealthMetricsWithLivenessClassification(t *testing.T) {
+	runTestHealthMetricsWithClassification(t, WithLivenessClassification(), "liveness")
 }
 
-func (s *TestSuite) TestHealthMetricsWithStartupClassification() {
-	s.runTestHealthMetricsWithClassification(WithStartupClassification(), "startup")
+func TestHealthMetricsWithStartupClassification(t *testing.T) {
+	runTestHealthMetricsWithClassification(t, WithStartupClassification(), "startup")
 }
 
-func (s *TestSuite) TestHealthMetricsWithReadinessClassification() {
-	s.runTestHealthMetricsWithClassification(WithReadinessClassification(), "readiness")
+func TestHealthMetricsWithReadinessClassification(t *testing.T) {
+	runTestHealthMetricsWithClassification(t, WithReadinessClassification(), "readiness")
 }
 
-func (s *TestSuite) TestHealthMetricsWithCustomClassification() {
-	s.runTestHealthMetricsWithClassification(WithClassification("demo"), "demo")
+func TestHealthMetricsWithCustomClassification(t *testing.T) {
+	runTestHealthMetricsWithClassification(t, WithClassification("demo"), "demo")
 }
 
 func registerCheck(h gosundheit.Health, name string, passing bool, initiallyPassing bool) {
@@ -156,12 +187,12 @@ type checkStub struct {
 
 func (c *checkStub) run(_ context.Context) (details interface{}, err error) {
 	c.counts++
-	time.Sleep(sleepTime * time.Millisecond)
+	time.Sleep(25 * time.Millisecond)
 	if c.passing {
-		return fmt.Sprintf("%s; i=%d", successMsg, c.counts), nil
+		return fmt.Sprintf("%s; i=%d", "success", c.counts), nil
 	}
 
-	return fmt.Sprintf("%s; i=%d", failedMsg, c.counts), errors.New(failedMsg)
+	return fmt.Sprintf("%s; i=%d", "failed", c.counts), errors.New("failed")
 }
 
 func awaitMetric(output *ThreadSafeBuffer) bool {

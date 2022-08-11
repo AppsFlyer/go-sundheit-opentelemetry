@@ -1,8 +1,6 @@
 package sundheitotel
 
-import (
-	"go.opentelemetry.io/otel/metric/global"
-)
+import "go.opentelemetry.io/otel/metric/global"
 
 const (
 	// ValAllChecks is the value used for the check tags when tagging all tests
@@ -12,7 +10,7 @@ const (
 )
 
 var (
-	meter             = global.Meter("gosundheit-otel")
+	defaultMeter      = global.Meter("gosundheit-otel")
 	keyCheck          = "check"
 	keyCheckPassing   = "check_passing"
 	keyClassification = "classification"

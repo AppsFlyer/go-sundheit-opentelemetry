@@ -1,5 +1,7 @@
 package sundheitotel
 
+import "go.opentelemetry.io/otel/metric"
+
 type Option func(*MetricsListener)
 
 // WithClassification set custom classification for metrics
@@ -32,8 +34,14 @@ func WithStartupClassification() Option {
 
 func WithDefaults() Option {
 	return func(listener *MetricsListener) {
-		for _, opt := range []Option{} {
+		for _, opt := range []Option{WithMeter(defaultMeter)} {
 			opt(listener)
 		}
+	}
+}
+
+func WithMeter(meter metric.Meter) Option {
+	return func(listener *MetricsListener) {
+		listener.meter = meter
 	}
 }

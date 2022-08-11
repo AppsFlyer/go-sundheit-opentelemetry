@@ -2,6 +2,7 @@ package sundheitotel
 
 import (
 	"context"
+	"go.opentelemetry.io/otel/metric"
 	"sync/atomic"
 	"unsafe"
 
@@ -15,6 +16,7 @@ type MetricsListener struct {
 	classification   string
 	mStatus          asyncint64.Gauge
 	mDuration        asyncint64.Gauge
+	meter            metric.Meter
 	statusResult     int64
 	durationResult   int64
 	checkName        string
@@ -22,31 +24,28 @@ type MetricsListener struct {
 }
 
 func NewMetricsListener(opts ...Option) (*MetricsListener, error) {
-	mStatus, err := meter.AsyncInt64().Gauge(StatusMetricName)
+	listener := &MetricsListener{}
+	defaults := []Option{WithDefaults()}
+	for _, opt := range append(defaults, opts...) {
+		opt(listener)
+	}
+	var err error
+	listener.mStatus, err = listener.meter.AsyncInt64().Gauge(StatusMetricName)
 	if err != nil {
 		return nil, err
 	}
-	mDuration, err := meter.AsyncInt64().Gauge(DurationMetricName)
+	listener.mDuration, err = listener.meter.AsyncInt64().Gauge(DurationMetricName)
 	if err != nil {
 		return nil, err
 	}
 
-	listener := &MetricsListener{
-		mStatus:   mStatus,
-		mDuration: mDuration,
-	}
-
-	if err := meter.RegisterCallback(
+	if err := listener.meter.RegisterCallback(
 		[]instrument.Asynchronous{
-			mStatus,
-			mDuration,
+			listener.mStatus,
+			listener.mDuration,
 		}, listener.metricsCallback,
 	); err != nil {
 		return nil, err
-	}
-
-	for _, opt := range append(opts, WithDefaults()) {
-		opt(listener)
 	}
 
 	return listener, nil

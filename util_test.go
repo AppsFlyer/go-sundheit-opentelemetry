@@ -12,32 +12,11 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	"github.com/stretchr/testify/suite"
 	"go.opentelemetry.io/otel/exporters/stdout/stdoutmetric"
-	"go.opentelemetry.io/otel/metric/global"
 	controller "go.opentelemetry.io/otel/sdk/metric/controller/basic"
 	processor "go.opentelemetry.io/otel/sdk/metric/processor/basic"
 	"go.opentelemetry.io/otel/sdk/metric/selector/simple"
 )
-
-type TestSuite struct {
-	suite.Suite
-	output *ThreadSafeBuffer
-	pusher *controller.Controller
-}
-
-func (s *TestSuite) SetupSuite() {
-	s.output = new(ThreadSafeBuffer)
-	s.installExportPipeline(context.Background(), s.T(), s.output, time.Millisecond*120)
-}
-
-func (s *TestSuite) SetupTest() {
-	s.output.buffer.Reset()
-}
-
-func TestRunSuite(t *testing.T) {
-	suite.Run(t, new(TestSuite))
-}
 
 type Datapoint struct {
 	Name string
@@ -72,50 +51,44 @@ func (b *ThreadSafeBuffer) String() string {
 	return b.buffer.String()
 }
 
-func (s *TestSuite) installExportPipeline(ctx context.Context, t *testing.T, writer io.Writer, collectPeriod time.Duration) func() {
+func installExportPipeline(ctx context.Context, t *testing.T, writer io.Writer) *controller.Controller {
 	t.Logf("starting exporter pipeline")
 	exporter, err := stdoutmetric.New(stdoutmetric.WithPrettyPrint(), stdoutmetric.WithWriter(writer))
 	if err != nil {
 		t.Fatalf("creating stdoutmetric exporter: %v", err)
 	}
 
-	s.pusher = controller.New(
+	pusher := controller.New(
 		processor.NewFactory(
 			simple.NewWithInexpensiveDistribution(),
 			exporter,
 		),
 		controller.WithExporter(exporter),
-		controller.WithCollectPeriod(collectPeriod),
+		controller.WithCollectPeriod(time.Second*3),
 	)
-	if err = s.pusher.Start(ctx); err != nil {
+	if err = pusher.Start(ctx); err != nil {
 		t.Fatalf("starting push controller: %v", err)
 	}
-	global.SetMeterProvider(s.pusher)
-
-	return func() {
-		if err := s.pusher.Stop(ctx); err != nil {
-			t.Fatalf("stopping push controller: %v", err)
-		}
-	}
+	return pusher
 }
 
 type AwaitFunc func(*ThreadSafeBuffer) bool
 
-func (s *TestSuite) AwaitOutput(callBack AwaitFunc) {
-	require.Eventually(s.T(), func() bool {
-		return callBack(s.output)
-	}, time.Second*10, time.Second, "output should not be empty")
+func awaitOutput(t *testing.T, callBack AwaitFunc, output *ThreadSafeBuffer) {
+	require.Eventually(t, func() bool {
+		return callBack(output)
+	}, time.Second*5, time.Millisecond*10, "output should not be empty")
 }
 
-func (s *TestSuite) deserializeOutput() []Datapoint {
+func deserializeOutput(t *testing.T, output *ThreadSafeBuffer) []Datapoint {
 	var res []Datapoint
 	// convert output to actual JSON, since otlp stdout exporter is not JSON compatible
-	out := strings.ReplaceAll(s.output.String(), "]\n[", ",")
+	out := strings.ReplaceAll(output.String(), "]\n[", ",")
 	err := json.Unmarshal([]byte(out), &res)
-	require.NoError(s.T(), err)
+	require.NoError(t, err)
 
 	sort.Slice(res[:], func(i, j int) bool {
-		return res[i].Last < res[j].Last
+		return res[i].Name > res[j].Name
 	})
 	return res
 }
